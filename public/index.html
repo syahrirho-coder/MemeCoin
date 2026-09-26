@@ -1,1 +1,205 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MEMECOIN SCANNER // On-Chain Screener</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --panel: #12121a;
+    --border: #2a2a3a;
+    --green: #3ddc84;
+    --red: #ff4d4d;
+    --amber: #ffb340;
+    --purple: #a855f7;
+    --text: #d4d4e0;
+    --dim: #6b6b80;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    margin: 0;
+    padding: 16px;
+  }
+  h1 {
+    font-size: 18px;
+    letter-spacing: 2px;
+    color: var(--purple);
+    text-shadow: 0 0 8px rgba(168,85,247,0.5);
+    margin-bottom: 4px;
+  }
+  .sub { color: var(--dim); font-size: 12px; margin-bottom: 16px; }
+  .controls {
+    display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+  }
+  select, input, button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: inherit;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  button {
+    background: var(--purple);
+    color: #fff;
+    cursor: pointer;
+    border: none;
+    font-weight: bold;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+  .card-head {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+  }
+  .name { font-weight: bold; color: #fff; }
+  .chain-tag {
+    font-size: 10px; color: var(--dim); border: 1px solid var(--border);
+    padding: 2px 6px; border-radius: 3px; margin-left: 6px;
+  }
+  .score {
+    font-size: 22px; font-weight: bold;
+  }
+  .score.good { color: var(--green); }
+  .score.mid { color: var(--amber); }
+  .score.bad { color: var(--red); }
+  .breakdown {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
+    gap: 6px; font-size: 12px; color: var(--dim);
+  }
+  .breakdown b { color: var(--text); }
+  .flags { color: var(--red); font-size: 11px; margin-top: 6px; }
+  .manual-checklist {
+    background: var(--panel);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+    font-size: 12px;
+  }
+  .manual-checklist label { display: block; margin: 4px 0; color: var(--dim); cursor: pointer; }
+  .manual-checklist label:hover { color: var(--text); }
+  a { color: var(--purple); }
+  .empty { color: var(--dim); text-align: center; padding: 30px; }
+  .disclaimer {
+    font-size: 11px; color: var(--dim); border-top: 1px solid var(--border);
+    margin-top: 20px; padding-top: 10px;
+  }
+</style>
+</head>
+<body>
+  <h1>&gt; MEMECOIN_SCANNER</h1>
+  <div class="sub">Screener 6-poin on-chain — 4 poin auto-score, 2 poin manual checklist. Bukan sinyal beli/jual otomatis.</div>
 
+  <div class="controls">
+    <select id="chain">
+      <option value="">Semua chain (sol, bsc, base, eth)</option>
+      <option value="sol">Solana</option>
+      <option value="bsc">BSC</option>
+      <option value="eth">Ethereum</option>
+      <option value="base">Base</option>
+      <option value="arbitrum">Arbitrum</option>
+      <option value="hyperevm">HyperEVM</option>
+      <option value="robinhood">Robinhood Chain</option>
+    </select>
+    <input id="minScore" type="number" placeholder="Min score (0-100)" value="0" style="width:140px" />
+    <button id="scanBtn" onclick="runScan()">SCAN</button>
+  </div>
+
+  <div id="results"><div class="empty">Klik SCAN untuk mulai screening token baru/trending multi-chain.</div></div>
+
+  <div class="disclaimer">
+    Data: GMGN OpenAPI (trenches + token security). Skor bukan jaminan profit — token dengan skor tinggi
+    tetap bisa rug. Selalu cross-check manual sebelum ambil posisi.
+  </div>
+
+<script>
+async function runScan() {
+  const btn = document.getElementById('scanBtn');
+  const chain = document.getElementById('chain').value;
+  const minScore = document.getElementById('minScore').value || 0;
+  const resultsEl = document.getElementById('results');
+
+  btn.disabled = true;
+  btn.textContent = 'SCANNING...';
+  resultsEl.innerHTML = '<div class="empty">Mengambil & menganalisis token, ini bisa 10-20 detik...</div>';
+
+  try {
+    const params = new URLSearchParams({ minScore });
+    if (chain) params.set('chain', chain);
+    const res = await fetch('/api/scan?' + params.toString());
+    const data = await res.json();
+
+    if (!data.tokens || !data.tokens.length) {
+      resultsEl.innerHTML = '<div class="empty">Tidak ada token yang lolos filter saat ini.</div>';
+      return;
+    }
+
+    resultsEl.innerHTML = data.tokens.map(renderCard).join('');
+  } catch (e) {
+    resultsEl.innerHTML = '<div class="empty">Error: ' + e.message + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'SCAN';
+  }
+}
+
+function scoreClass(s) {
+  if (s >= 70) return 'good';
+  if (s >= 40) return 'mid';
+  return 'bad';
+}
+
+function renderCard(t) {
+  const b = t.breakdown;
+  const flagsHtml = (b.flags && b.flags.length)
+    ? '<div class="flags">⚠ ' + b.flags.join(' · ') + '</div>' : '';
+  const id = t.tokenAddress.slice(0, 8);
+  return `
+    <div class="card">
+      <div class="card-head">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <img src="${t.logo || ''}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
+               style="width:28px;height:28px;border-radius:50%;object-fit:cover;${t.logo ? '' : 'display:none;'}" />
+          <div class="monogram" style="width:28px;height:28px;border-radius:50%;background:var(--border);
+               align-items:center;justify-content:center;font-size:12px;font-weight:bold;color:var(--purple);
+               display:${t.logo ? 'none' : 'flex'};">${(t.symbol || '?').slice(0,2).toUpperCase()}</div>
+          <div>
+            <span class="name">${t.symbol || '?'}</span>
+            <span class="chain-tag">${t.chain}</span>
+          </div>
+        </div>
+        <div class="score ${scoreClass(t.score)}">${t.score}</div>
+      </div>
+      <div class="breakdown">
+        <div>Top10 Holder: <b>${b.topHolderRate !== null ? (b.topHolderRate*100).toFixed(1)+'%' : 'N/A'}</b> (${b.holderScore}/25) · ${b.holderCount ?? '?'} holder</div>
+        <div>Net Buy 24h: <b>$${Number(b.netBuy24hUsd || 0).toLocaleString()}</b> · ${b.swaps24h} swap (${b.flowScore}/25)</div>
+        <div>Smart Money: <b>${b.smartDegenCount} smart · ${b.renownedCount} KOL</b> (${b.momentumScore}/25)</div>
+        <div>Safety: <b>${b.safetyScore}/25</b> · rug ${b.rugRatio !== null ? (b.rugRatio*100).toFixed(0)+'%' : '?'}</div>
+        <div>Wallet Diversity: <b>${b.walletDiversity?.uniqueHolders ?? '?'} unique</b> · ${b.walletDiversity?.bundledWalletPct !== null && b.walletDiversity?.bundledWalletPct !== undefined ? (b.walletDiversity.bundledWalletPct*100).toFixed(1)+'% ter-bundle' : 'bundle N/A'}</div>
+        <div>Market Cap: <b>$${Number(t.marketcapUsd || 0).toLocaleString()}</b> · Liquidity: $${Number(t.liquidityUsd || 0).toLocaleString()}</div>
+        <div><a href="${t.gmgnUrl}" target="_blank">Lihat di GMGN →</a></div>
+      </div>
+      ${flagsHtml}
+      <div class="manual-checklist">
+        <b>Manual check (${id}...):</b>
+        <label><input type="checkbox" /> Narasi bisa dipahami sekilas (tanpa perlu penjelasan panjang)</label>
+        <label><input type="checkbox" /> Media sosial: bukan akun terkunci/baru/bot-heavy Telegram</label>
+      </div>
+    </div>
+  `;
+}
+</script>
+</body>
+</html>
